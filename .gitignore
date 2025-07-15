@@ -1,0 +1,6 @@
+model_output/
+*.csv
+*.json
+*.xlsx
+*.log
+*.out
