@@ -50,6 +50,7 @@
 | `train_id2label.json` | 标签映射配置文件 |
 
 ## 🏗️ 项目结构
+```bash
 AssetBERT/
 ├── datasets/                # 存放训练集和测试集
 │   ├── multi_inputs_train.csv
@@ -79,6 +80,7 @@ AssetBERT/
 ├── train_multi_inputs_classifier.py  # 多变量输入模型训练文件
 ├── train_multi_inputs_classifier_advance.py  # 带有高级训练策略的多变量输入模型训练文件
 └── README.md                # 项目说明文档
+```
 
 ## API请求
 ### 单量请求
