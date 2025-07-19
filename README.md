@@ -84,7 +84,7 @@ AssetBERT/
 ├── excel_json_processor.py  # 根据数据集创建新的id2label文件
 ├── rule_新国标分类测试集.xlsx  # 规则判断依据文件
 ├── rule_all_data_0717.xlsx  # 根据最新数据构建的规则判断依据文件
-├── split_dataset.py         # 划分训练和测试集代码
+├── split_dataset.py         # 划分训练和测试集
 ├── test_assets_vilm.py      # 测试脚本
 ├── train_classifier.py       # 单变量输入模型训练文件
 ├── train_multi_inputs_classifier.py  # 多变量输入模型训练文件
@@ -94,6 +94,13 @@ AssetBERT/
 ├── train_stacking_deep.py  # 基于深度网络（RWKV、MLP、Transformer）的集成学习训练
 └── README.md                # 项目说明文档
 ```
+## 数据处理流程
+1. 运行excel_json_processor.py，构建id2label文件，用于模型训练和测试
+2. 运行convert_xlsx_data.py，列数据抽取代码，用于构建数据集
+3. 运行convert_csv_label.py，将数据中的字符串标签转换为数字标签
+4. 运行process_illegal_char.py，转换“型号”字段中的无效字符
+5. 运行split_dataset.py，划分训练和测试集
+6. 运行extract_columns.py，用于构建规则判断依据文件
 
 ## API请求
 ### 启动命令：
