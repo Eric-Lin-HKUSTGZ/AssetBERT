@@ -157,14 +157,14 @@ curl -X POST "http://10.120.20.176:20805/batch_predict"  -H "Content-Type: appli
 | WoBERT | top_k损失(未考虑原始损失和标签平滑) | `/model_output/multi_inputs/2025-07-18-14-47` | 0.9330 | 0.9617 | ✓ |
 | MacBERT | top_k损失(未考虑原始损失和标签平滑) | `/model_output/multi_inputs/2025-07-18-16-32` | 0.9331 | 0.9618 | ✓ |
 
-### 三模型集成学习结果 (RoBERTa+WoBERT+MacBERT)
+### 集成学习实验 (RoBERTa+WoBERT+MacBERT)
 | 集成方法 | 参数/模型 | 模型路径 | top1 | top3 | 提升幅度 |
 |----------|-----------|----------|-------|-------|----------|
-| 加权投票 | 权重[0.3,0.3,0.4] | 组合自单模型 | 0.9355 | 0.9634 | +0.2% |
-| Meta model | MLP | 组合自单模型 | 0.9347 | - | - |
-| Meta model | RWKV | 组合自单模型 | 0.9267 | - | - |
-| Meta model | Transformer | 组合自单模型 | 0.9314 | - | - |
-| Meta model | LightGBM | 组合自单模型 | 0.8838 | - | - |
+| 加权投票 | 权重[0.3,0.3,0.4] | 无 | 0.9355 | 0.9634 | +0.2% |
+| Meta model | MLP | /model_output/multi_inputs/stacking/meta_linear_model.pth | 0.9347 | - | - |
+| Meta model | RWKV | /model_output/multi_inputs/stacking/meta_rwkv_model.pth | 0.9267 | - | - |
+| Meta model | Transformer | /model_output/multi_inputs/stacking/meta_transformer_model.pth | 0.9314 | - | - |
+| Meta model | LightGBM | /model_output/multi_inputs/stacking/lightgbm_model.bin | 0.8838 | - | - |
 
 ## 推理策略对比
 规则+模型补充：
