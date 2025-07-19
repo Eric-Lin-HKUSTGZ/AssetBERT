@@ -30,7 +30,19 @@ def replace_model_values(input_path, output_dir=None):
     
     # 替换型号列中的特定值
     replace_chars = ['*', '-', '/','无','']
-    df['型号'] = df['型号'].apply(lambda x: '[型号缺失]' if str(x).strip() in replace_chars else x)
+    
+    def replace_model_value(x):
+        """替换型号值，包括空值和特定字符"""
+        # 转换为字符串并去除空格
+        x_str = str(x).strip()
+        
+        # 检查是否为空值或特定字符
+        if x_str in replace_chars or x_str == '' or x_str == 'nan' or pd.isna(x):
+            return '[型号缺失]'
+        else:
+            return x
+    
+    df['型号'] = df['型号'].apply(replace_model_value)
     
     # 设置输出路径
     if output_dir is None:
@@ -56,8 +68,8 @@ def replace_model_values(input_path, output_dir=None):
 
 if __name__ == "__main__":
     # 示例使用
-    input_file = "/hpc2hdd/home/qxiao183/linweiquan/AssetBERT/datasets/multi_inputs_all.csv"  # 替换为你的Excel文件路径
-    output_directory = "/hpc2hdd/home/qxiao183/linweiquan/AssetBERT/datasets"  # 替换为你想要的输出目录
+    input_file = "/hpc2hdd/home/qxiao183/linweiquan/AssetBERT/datasets/0717/multi_inputs_0717_train.csv"  # 替换为你的Excel文件路径
+    output_directory = "/hpc2hdd/home/qxiao183/linweiquan/AssetBERT/datasets/0717"  # 替换为你想要的输出目录
     
     # 确保输出目录存在
     os.makedirs(output_directory, exist_ok=True)

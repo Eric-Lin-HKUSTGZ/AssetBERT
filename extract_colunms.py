@@ -26,11 +26,11 @@ def extract_columns(input_file, output_file):
             raise ValueError(f"输入文件需要至少8列，但只有{df.shape[1]}列")
         
         # 提取指定的列
-        # 列索引: B=1, C=2, D=3,  H=7
-        extracted_columns = df.iloc[:, [1, 2, 5, 7]]
+        # 列索引: B=1, C=2, D=3, E=4, H=7
+        extracted_columns = df.iloc[:, [1, 2, 4, 5, 7]]
         
         # 设置列名
-        column_names = ['资产名称', '型号', '用途', '新国标分类']
+        column_names = ['资产名称', '型号', '用途', '使用部门', '新国标分类']
         extracted_columns.columns = column_names
         
         # 保存到新文件
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     output_path = os.path.join(args.output_dir, output_filename)
     
     print(f"开始处理: {args.input_file}")
-    print(f"将提取以下列: B列, C列, F列, H列")
+    print(f"将提取以下列: B列, C列, E列, F列, H列")
     
     # 执行提取
     success = extract_columns(args.input_file, output_path)

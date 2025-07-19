@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 # ─────────── CLI ───────────
 p = argparse.ArgumentParser(description='Hybrid inference service with multi-input model')
+# p.add_argument('--input', type=str, default='./datasets/multi_chars_data/multi_inputs_dev.csv')
+# p.add_argument('--rule_xlsx', type=str, default='rule_新国标分类测试集.xlsx')
+# p.add_argument('--model_dir', type=str, default='./model_output/multi_inputs/2025-07-14-20-21')
 p.add_argument('--input', type=str, default='./datasets/0717/multi_inputs_dev.csv')
 p.add_argument('--rule_xlsx', type=str, default='rule_all_data_0717.xlsx')
 p.add_argument('--model_dir', type=str, default='./model_output/multi_inputs/2025-07-18-12-13')
@@ -30,7 +33,6 @@ p.add_argument('--id2label', type=str, default=None)
 p.add_argument('--top_k', type=int, default=3)
 p.add_argument('--bs', type=int, default=32, help='batch size for model')
 p.add_argument('--max_length', type=int, default=64, help='max sequence length')
-p.add_argument('--confidence_threshold', type=float, default=0.9, help='模型置信度阈值，低于此值使用规则')
 p.add_argument('--no-fallback', action='store_true', help='不使用模型兜底，仅使用规则')
 args = p.parse_args()
 
@@ -146,96 +148,70 @@ def model_predict(asset_names, models, purposes, departments):
 
 # ─────────── 5. 推理 ----------
 logger.info("开始推理...")
-logger.info(f"模型置信度阈值: {args.confidence_threshold}")
 
-# 模型优先 + 规则补充
-candidates, need_rule = [], []
-
-# 准备所有样本的文本
-all_texts = []
+# 规则优先 + 模型补全
+candidates, need_model = [], []
 for i, row in df.iterrows():
     asset_name = str(row['资产名称'])
     model_name = str(row['型号'])
     purpose = str(row['用途'])
     department = str(row['使用部门'])
     
-    combined_text = f"资产名称: {asset_name} 型号: {model_name} 用途: {purpose} 使用部门: {department}"
-    all_texts.append(combined_text)
-
-# 批量模型预测
-if use_fallback:
-    logger.info("使用模型进行批量预测...")
-    
-    all_model_predictions = []
-    all_confidences = []
-    
-    # 分批处理
-    for i in range(0, len(all_texts), args.bs):
-        batch_texts = all_texts[i:i+args.bs]
-        
-        # 批量tokenize
-        tokenized = tokenizer(
-            batch_texts,
-            truncation=True,
-            padding='max_length',
-            max_length=args.max_length,
-            return_tensors='pt'
-        )
-        
-        batch_inputs = {k: v.to(device) for k, v in tokenized.items()}
-        outputs = model(**batch_inputs)
-        logits = outputs.logits.cpu()
-        
-        # 获取top-k预测和置信度
-        top_idx = logits.topk(K, dim=-1).indices
-        confidences = torch.softmax(logits, dim=-1).max(dim=-1).values
-        
-        for j, (indices, conf) in enumerate(zip(top_idx, confidences)):
-            predictions = []
-            for idx in indices:
-                pred_label = id2label.get(str(int(idx)), "未知")
-                predictions.append(pred_label)
-            all_model_predictions.append(predictions)
-            all_confidences.append(conf.item())
-    
-    # 根据置信度决定是否使用规则
-    for i, (model_pred, confidence) in enumerate(zip(all_model_predictions, all_confidences)):
-        asset_name = str(df.iloc[i]['资产名称'])
-        
-        # 如果模型置信度低于阈值，尝试使用规则补充
-        if confidence < args.confidence_threshold:
-            rule_labs = rule_lookup(asset_name)
-            if rule_labs:
-                # 规则命中，检查是否需要补充
-                if len(rule_labs) >= K:
-                    # 规则结果足够，使用规则结果
-                    candidates.append(rule_labs[:K])
-                    need_rule.append(("规则", rule_labs[:K]))
-                else:
-                    # 规则结果不足，用模型结果补充
-                    existing_labels = set(rule_labs)
-                    additional_labels = [label for label in model_pred if label not in existing_labels]
-                    final_predictions = rule_labs + additional_labels[:K - len(rule_labs)]
-                    candidates.append(final_predictions)
-                    need_rule.append(("规则+模型补充", final_predictions))
-                continue
-        
-        # 模型置信度足够，直接使用模型预测
-        candidates.append(model_pred)
-        need_rule.append(("模型", model_pred))
-        
-else:
-    # 不使用模型，仅使用规则
-    logger.info("仅使用规则进行预测...")
-    for i, row in df.iterrows():
-        asset_name = str(row['资产名称'])
-        rule_labs = rule_lookup(asset_name)
-        if rule_labs:
-            candidates.append(rule_labs[:K])
-            need_rule.append(("规则", rule_labs[:K]))
+    # 先尝试规则匹配
+    labs = rule_lookup(asset_name)
+    if labs:
+        # 规则命中，检查是否需要模型补全
+        if len(labs) >= K:
+            # 规则结果足够，直接使用
+            candidates.append(labs[:K])
+            need_model.append(None)
+        else:
+            # 规则结果不足，需要模型补全
+            candidates.append(labs)  # 先保存规则结果
+            need_model.append((asset_name, model_name, purpose, department, len(labs)))  # 记录需要补全的数量
+    else:
+        # 规则未命中，需要模型预测
+        if use_fallback:
+            need_model.append((asset_name, model_name, purpose, department, 0))  # 0表示完全由模型预测
+            candidates.append([])
         else:
             candidates.append([''] * K)
-            need_rule.append(("无匹配", [''] * K))
+            need_model.append(None)
+
+# 调用模型进行补全预测
+if use_fallback and any(x is not None for x in need_model):
+    logger.info("使用模型进行补全预测...")
+    
+    # 提取需要模型预测的样本
+    model_inputs = [x for x in need_model if x is not None]
+    if model_inputs:
+        asset_names_model = [x[0] for x in model_inputs]
+        models_model = [x[1] for x in model_inputs]
+        purposes_model = [x[2] for x in model_inputs]
+        department_model = [x[3] for x in model_inputs]
+        
+        # 批量预测
+        model_predictions = model_predict(asset_names_model, models_model, purposes_model, department_model)
+        
+        # 将模型预测结果填入candidates
+        model_idx = 0
+        for i, (candidate, model_input) in enumerate(zip(candidates, need_model)):
+            if model_input is not None:
+                existing_count = model_input[4]  # 已有的规则结果数量
+                model_pred = model_predictions[model_idx]
+                
+                if existing_count == 0:
+                    # 完全由模型预测
+                    candidates[i] = model_pred
+                else:
+                    # 规则 + 模型补全
+                    # 过滤掉已经在规则结果中的标签，避免重复
+                    existing_labels = set(candidate)
+                    additional_labels = [label for label in model_pred if label not in existing_labels]
+                    # 补全到K个标签
+                    candidates[i] = candidate + additional_labels[:K - existing_count]
+                
+                model_idx += 1
 
 logger.info(f"推理完成，共处理 {len(candidates)} 个样本")
 
@@ -251,17 +227,11 @@ logger.info(f'✅ 结果已保存到 {out_csv}')
 
 # 统计信息
 rule_hits = sum(bool(rule_lookup(str(row['资产名称']))) for _, row in df.iterrows())
-model_only = sum(1 for x in need_rule if x[0] == "模型")
-rule_only = sum(1 for x in need_rule if x[0] == "规则")
-rule_model_mixed = sum(1 for x in need_rule if x[0] == "规则+模型补充")
-no_match = sum(1 for x in need_rule if x[0] == "无匹配")
-
+model_completion = sum(1 for x in need_model if x is not None)
 logger.info(f"总样本数: {len(df)}")
-logger.info(f"模型预测: {model_only} 个样本")
-logger.info(f"规则预测: {rule_only} 个样本")
-logger.info(f"规则+模型补充: {rule_model_mixed} 个样本")
-logger.info(f"无匹配: {no_match} 个样本")
-logger.info(f"规则库命中: {rule_hits} / {len(df)}")
+logger.info(f"规则命中条数: {rule_hits} / {len(df)}")
+if use_fallback:
+    logger.info(f"模型补全条数: {model_completion}")
 
 if has_true and true_labels:
     # 确保标签类型一致，都转换为字符串
@@ -275,25 +245,20 @@ if has_true and true_labels:
     logger.info(f'Overall  Accuracy@1={acc1:.4f}  Accuracy@{K}={acck:.4f}')
     
     # 分别评估规则 / 模型
-    # 模型预测：完全由模型预测的样本
-    model_only_idx = [i for i, method_info in enumerate(need_rule) if method_info[0] == "模型"]
     # 规则预测：完全由规则预测的样本
-    rule_only_idx = [i for i, method_info in enumerate(need_rule) if method_info[0] == "规则"]
-    # 混合预测：规则+模型补充的样本
-    mixed_idx = [i for i, method_info in enumerate(need_rule) if method_info[0] == "规则+模型补充"]
+    rule_only_idx = [i for i, (candidate, model_input) in enumerate(zip(candidates, need_model)) 
+                     if model_input is None]
+    # 模型预测：包含模型预测的样本（完全模型预测或规则+模型补全）
+    model_involved_idx = [i for i, model_input in enumerate(need_model) if model_input is not None]
 
-    if model_only_idx:
-        m_acc1 = accuracy_score([true_labels_str[i] for i in model_only_idx],
-                                [pred_labels_str[i] for i in model_only_idx])
-        logger.info(f'纯模型预测 Accuracy@1={m_acc1:.4f} (size={len(model_only_idx)})')
     if rule_only_idx:
         r_acc1 = accuracy_score([true_labels_str[i] for i in rule_only_idx],
                                 [pred_labels_str[i] for i in rule_only_idx])
         logger.info(f'纯规则预测 Accuracy@1={r_acc1:.4f} (size={len(rule_only_idx)})')
-    if mixed_idx:
-        mix_acc1 = accuracy_score([true_labels_str[i] for i in mixed_idx],
-                                  [pred_labels_str[i] for i in mixed_idx])
-        logger.info(f'规则+模型补充 Accuracy@1={mix_acc1:.4f} (size={len(mixed_idx)})')
+    if model_involved_idx and use_fallback:
+        m_acc1 = accuracy_score([true_labels_str[i] for i in model_involved_idx],
+                                [pred_labels_str[i] for i in model_involved_idx])
+        logger.info(f'模型参与预测 Accuracy@1={m_acc1:.4f} (size={len(model_involved_idx)})')
     
     # 详细分类报告
     # try:
@@ -310,11 +275,12 @@ else:
 # 显示前几个预测结果作为示例
 logger.info("预测结果示例:")
 for i in range(min(5, len(df))):
-    method_info = need_rule[i]
-    if method_info[0] == "模型":
-        method = "模型"
-    elif method_info[0] == "规则":
-        method = "规则"
+    if i < len(need_model) and need_model[i] is not None:
+        existing_count = need_model[i][4]
+        if existing_count == 0:
+            method = "模型"
+        else:
+            method = f"规则+模型补全({existing_count}+{K-existing_count})"
     else:
-        method = method_info[0]
+        method = "规则"
     logger.info(f"  样本{i+1}: {df['资产名称'].iloc[i]} | {df['型号'].iloc[i]} | {df['用途'].iloc[i]} | {df['使用部门'].iloc[i]} -> {df['top1'].iloc[i]} ({method})")

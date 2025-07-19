@@ -20,10 +20,13 @@ logger = logging.getLogger(__name__)
 # 配置
 TEXT_COL = '资产名称'
 LABEL_COL = '新国标分类'
-RULE_XLSX = 'rule_新国标分类测试集.xlsx'
-MODEL_DIR = './model_output/multi_inputs/2025-07-14-20-21'
-ID2LABEL_PATH = 'train_id2label.json'
-TOP_K = 5
+# RULE_XLSX = 'rule_新国标分类测试集.xlsx'
+# MODEL_DIR = './model_output/multi_inputs/2025-07-14-20-21'
+# ID2LABEL_PATH = 'train_id2label.json'
+RULE_XLSX = 'rule_all_data_0717.xlsx'
+MODEL_DIR = './model_output/multi_inputs/2025-07-18-12-13'
+ID2LABEL_PATH = 'train_id2label_0717.json'
+TOP_K = 3
 MAX_LENGTH = 64
 BATCH_SIZE = 32
 
@@ -67,15 +70,15 @@ if use_fallback:
         raise RuntimeError(f"模型加载失败: {e}")
 
     @torch.no_grad()
-    def model_predict(asset_names, models, purposes):
+    def model_predict(asset_names, models, purposes, departments):
         """
         多输入模型预测函数
         """
         # 构建多输入文本
         combined_texts = []
-        for asset_name, model_name, purpose in zip(asset_names, models, purposes):
+        for asset_name, model_name, purpose, department in zip(asset_names, models, purposes, departments):
             # 使用与训练时相同的拼接格式
-            combined_text = f"资产名称: {asset_name} 型号: {model_name} 用途: {purpose}"
+            combined_text = f"资产名称: {asset_name} 型号: {model_name} 用途: {purpose} 使用部门: {department}"
             combined_texts.append(combined_text)
         
         all_predictions = []
@@ -120,10 +123,11 @@ class AssetRequest(BaseModel):
     资产名称: str
     型号: str = ""
     用途: str = ""
+    使用部门: str = ""
 
 class AssetData(BaseModel):
     top_1: str
-    top_5: list[str]
+    top_3: list[str]
 
 class APIResponse(BaseModel):
     code: int
@@ -165,7 +169,7 @@ async def predict(req: AssetRequest):
     资产分类预测接口
     
     Args:
-        req: 包含资产名称、型号、用途的请求对象
+        req: 包含资产名称、型号、用途、使用部门的请求对象
         
     Returns:
         包含code、success、message和data的标准API响应
@@ -174,7 +178,7 @@ async def predict(req: AssetRequest):
         asset_name = req.资产名称.strip()
         model_name = req.型号.strip() if req.型号 else "[型号缺失]"
         purpose = req.用途.strip() if req.用途 else "[用途缺失]"
-        
+        department = req.使用部门.strip() if req.使用部门 else "[部门缺失]"
         if not asset_name:
             return APIResponse(
                 code=400,
@@ -194,7 +198,7 @@ async def predict(req: AssetRequest):
                 method = "规则"
             else:
                 # 规则结果不足，需要模型补全
-                model_pred = model_predict([asset_name], [model_name], [purpose])[0]
+                model_pred = model_predict([asset_name], [model_name], [purpose], [department])[0]
                 # 过滤掉已经在规则结果中的标签，避免重复
                 existing_labels = set(labs)
                 additional_labels = [label for label in model_pred if label not in existing_labels]
@@ -204,7 +208,7 @@ async def predict(req: AssetRequest):
         else:
             # 规则未命中，完全使用模型预测
             if use_fallback:
-                model_pred = model_predict([asset_name], [model_name], [purpose])[0]
+                model_pred = model_predict([asset_name], [model_name], [purpose], [department])[0]
                 candidates = model_pred
                 method = "模型"
             else:
@@ -217,7 +221,7 @@ async def predict(req: AssetRequest):
             message="预测成功",
             data=AssetData(
                 top_1=candidates[0] if candidates[0] else "未知",
-                top_5=candidates[:TOP_K]
+                top_3=candidates[:TOP_K]
             )
         )
         
@@ -256,14 +260,14 @@ async def batch_predict(requests: list[AssetRequest]):
         asset_names = [req.资产名称.strip() for req in requests]
         model_names = [req.型号.strip() if req.型号 else "[型号缺失]" for req in requests]
         purposes = [req.用途.strip() if req.用途 else "[用途缺失]" for req in requests]
-        
+        departments = [req.使用部门.strip() if req.使用部门 else "[部门缺失]" for req in requests]
         # 批量处理
-        for i, (asset_name, model_name, purpose) in enumerate(zip(asset_names, model_names, purposes)):
+        for i, (asset_name, model_name, purpose, department) in enumerate(zip(asset_names, model_names, purposes, departments)):
             if not asset_name:
                 results.append({
                     "error": "资产名称不能为空",
                     "top_1": "未知",
-                    "top_5": ["未知"] * TOP_K
+                    "top_3": ["未知"] * TOP_K
                 })
                 continue
             
@@ -278,7 +282,7 @@ async def batch_predict(requests: list[AssetRequest]):
                     method = "规则"
                 else:
                     # 规则结果不足，需要模型补全
-                    model_pred = model_predict([asset_name], [model_name], [purpose])[0]
+                    model_pred = model_predict([asset_name], [model_name], [purpose], [department])[0]
                     # 过滤掉已经在规则结果中的标签，避免重复
                     existing_labels = set(labs)
                     additional_labels = [label for label in model_pred if label not in existing_labels]
@@ -288,7 +292,7 @@ async def batch_predict(requests: list[AssetRequest]):
             else:
                 # 规则未命中，完全使用模型预测
                 if use_fallback:
-                    model_pred = model_predict([asset_name], [model_name], [purpose])[0]
+                    model_pred = model_predict([asset_name], [model_name], [purpose], [department])[0]
                     candidates = model_pred
                     method = "模型"
                 else:
@@ -297,7 +301,7 @@ async def batch_predict(requests: list[AssetRequest]):
             
             results.append({
                 "top_1": candidates[0] if candidates[0] else "未知",
-                "top_5": candidates[:TOP_K]
+                "top_3": candidates[:TOP_K]
             })
         
         return APIResponse(
@@ -320,3 +324,12 @@ async def batch_predict(requests: list[AssetRequest]):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)
+"""
+curl -X POST "http://10.120.20.176:20805/predict"      -H "Content-Type: application/json"   
+   -d '{
+       "资产名称": "显示器",
+       "型号": "DELL P2422H",
+       "用途": "行政办公用",
+       "使用部门": "综合事务处"
+    }'
+"""

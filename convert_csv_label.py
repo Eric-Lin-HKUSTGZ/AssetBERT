@@ -7,9 +7,9 @@ import json
 import os
 
 # 配置路径
-input_csv = './datasets/multi_inputs_0701.csv'
-label_json = 'train_id2label.json'
-output_csv = './datasets/multi_inputs_all.csv'
+input_csv = '/hpc2hdd/home/qxiao183/linweiquan/AssetBERT/datasets/0717/multi_inputs_0717.csv'
+label_json = '/hpc2hdd/home/qxiao183/linweiquan/AssetBERT/train_id2label_0717.json'
+output_csv = '/hpc2hdd/home/qxiao183/linweiquan/AssetBERT/datasets/0717/multi_inputs_0717_train.csv'
 
 # 读取标签映射（数字->字符串）
 with open(label_json, 'r', encoding='utf-8') as f:
@@ -25,10 +25,10 @@ df = pd.read_csv(input_csv, encoding='utf-8')
 # 处理B列（从第二行开始）
 missing_labels = set()
 for idx in range(0, len(df)):
-    orig_value = str(df.iloc[idx, 3])  # B列
+    orig_value = str(df.iloc[idx, 4])  # B列
     mapped = str2num.get(orig_value)
     if mapped is not None:
-        df.iat[idx, 3] = mapped
+        df.iat[idx, 4] = mapped
     else:
         missing_labels.add(orig_value)
 
